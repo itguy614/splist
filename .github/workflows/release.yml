@@ -1,0 +1,95 @@
+name: Release
+
+# Cutting a release: tag a commit on master with a v-prefixed semver tag that
+# matches the VERSION file, e.g.
+#   git tag v0.5.0 && git push origin v0.5.0
+# This builds every platform and attaches per-OS archives to a GitHub Release.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  verify:
+    name: Verify tag matches VERSION
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag == VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(tr -d '[:space:]' < VERSION)"
+          echo "Tag: ${GITHUB_REF_NAME} (=> $tag)   VERSION file: $file"
+          if [ "$tag" != "$file" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match VERSION file ($file)"
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        shell: bash
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+
+      - name: Configure & build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          os=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          arch=$(uname -m)
+          name="splist-${VERSION}-${os}-${arch}"
+          mkdir -p "staging/${name}" dist
+          cp build/splist README.md LICENSE "staging/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C staging "${name}"
+          echo "ASSET=${name}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          name="splist-${VERSION}-windows-x86_64"
+          mkdir -p "staging/${name}" dist
+          cp build/Release/splist.exe README.md LICENSE "staging/${name}/"
+          ( cd staging && 7z a "../dist/${name}.zip" "${name}" >/dev/null )
+          echo "ASSET=${name}.zip" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: dist/${{ env.ASSET }}
+          retention-days: 1
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

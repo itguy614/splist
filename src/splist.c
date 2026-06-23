@@ -12,8 +12,7 @@ static int ci_equal(const char *a, const char *b)
     while (*a && *b) {
         int ca = tolower((unsigned char)*a++);
         int cb = tolower((unsigned char)*b++);
-        if (ca != cb)
-            return 0;
+        if (ca != cb) return 0;
     }
     return *a == '\0' && *b == '\0';
 }
@@ -21,11 +20,15 @@ static int ci_equal(const char *a, const char *b)
 const char *splist_transport_name(splist_transport_t t)
 {
     switch (t) {
-    case SPLIST_TRANSPORT_USB:       return "USB";
-    case SPLIST_TRANSPORT_BLUETOOTH: return "Bluetooth";
-    case SPLIST_TRANSPORT_PCI:       return "PCI";
-    case SPLIST_TRANSPORT_UNKNOWN:   /* fall through */
-    default:                         return "Unknown";
+    case SPLIST_TRANSPORT_USB:
+        return "USB";
+    case SPLIST_TRANSPORT_BLUETOOTH:
+        return "Bluetooth";
+    case SPLIST_TRANSPORT_PCI:
+        return "PCI";
+    case SPLIST_TRANSPORT_UNKNOWN: /* fall through */
+    default:
+        return "Unknown";
     }
 }
 
@@ -40,15 +43,11 @@ static int port_cmp(const void *a, const void *b)
 splist_status_t splist_enumerate(splist_port_t **out_ports, size_t *out_count)
 {
     splist_status_t st = splist_backend_enumerate(out_ports, out_count);
-    if (st == SPLIST_OK && *out_ports != NULL && *out_count > 1)
-        qsort(*out_ports, *out_count, sizeof(**out_ports), port_cmp);
+    if (st == SPLIST_OK && *out_ports != NULL && *out_count > 1) qsort(*out_ports, *out_count, sizeof(**out_ports), port_cmp);
     return st;
 }
 
-void splist_free(splist_port_t *ports)
-{
-    free(ports);
-}
+void splist_free(splist_port_t *ports) { free(ports); }
 
 int splist_find_by_serial(const char *serial, splist_port_t *out)
 {
@@ -56,15 +55,12 @@ int splist_find_by_serial(const char *serial, splist_port_t *out)
     size_t count = 0;
     int result = 1; /* no match */
 
-    if (serial == NULL || out == NULL)
-        return SPLIST_ERR_IO;
+    if (serial == NULL || out == NULL) return SPLIST_ERR_IO;
 
-    if (splist_enumerate(&ports, &count) != SPLIST_OK)
-        return SPLIST_ERR_IO;
+    if (splist_enumerate(&ports, &count) != SPLIST_OK) return SPLIST_ERR_IO;
 
     for (size_t i = 0; i < count; ++i) {
-        if (ports[i].transport == SPLIST_TRANSPORT_USB &&
-            ci_equal(ports[i].serial_number, serial)) {
+        if (ports[i].transport == SPLIST_TRANSPORT_USB && ci_equal(ports[i].serial_number, serial)) {
             *out = ports[i];
             result = SPLIST_OK;
             break;

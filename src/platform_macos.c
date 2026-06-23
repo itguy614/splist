@@ -25,22 +25,16 @@
  * IOUSBHostDevice node, so we walk up the registry to collect it. */
 
 /* Copy a CFString registry property of `service` into buf. Empty on miss. */
-static void copy_str_prop(io_registry_entry_t service, CFStringRef key,
-                          char *buf, size_t buflen)
+static void copy_str_prop(io_registry_entry_t service, CFStringRef key, char *buf, size_t buflen)
 {
-    if (buflen == 0)
-        return;
+    if (buflen == 0) return;
     buf[0] = '\0';
 
-    CFTypeRef val = IORegistryEntrySearchCFProperty(
-        service, kIOServicePlane, key, kCFAllocatorDefault,
-        kIORegistryIterateRecursively | kIORegistryIterateParents);
-    if (val == NULL)
-        return;
+    CFTypeRef val = IORegistryEntrySearchCFProperty(service, kIOServicePlane, key, kCFAllocatorDefault,
+                                                    kIORegistryIterateRecursively | kIORegistryIterateParents);
+    if (val == NULL) return;
 
-    if (CFGetTypeID(val) == CFStringGetTypeID())
-        CFStringGetCString((CFStringRef)val, buf, (CFIndex)buflen,
-                           kCFStringEncodingUTF8);
+    if (CFGetTypeID(val) == CFStringGetTypeID()) CFStringGetCString((CFStringRef)val, buf, (CFIndex)buflen, kCFStringEncodingUTF8);
     CFRelease(val);
 }
 
@@ -48,11 +42,9 @@ static void copy_str_prop(io_registry_entry_t service, CFStringRef key,
  * Returns nonzero on success. */
 static int copy_num_prop(io_registry_entry_t service, CFStringRef key, long *out)
 {
-    CFTypeRef val = IORegistryEntrySearchCFProperty(
-        service, kIOServicePlane, key, kCFAllocatorDefault,
-        kIORegistryIterateRecursively | kIORegistryIterateParents);
-    if (val == NULL)
-        return 0;
+    CFTypeRef val = IORegistryEntrySearchCFProperty(service, kIOServicePlane, key, kCFAllocatorDefault,
+                                                    kIORegistryIterateRecursively | kIORegistryIterateParents);
+    if (val == NULL) return 0;
 
     int ok = 0;
     if (CFGetTypeID(val) == CFNumberGetTypeID()) {
@@ -76,10 +68,8 @@ static int fill_port(io_object_t service, splist_port_t *port)
     /* Prefer the callout device (/dev/cu.*); fall back to the dial-in path. */
     char path[SPLIST_STR_MAX] = {0};
     copy_str_prop(service, CFSTR(kIOCalloutDeviceKey), path, sizeof(path));
-    if (path[0] == '\0')
-        copy_str_prop(service, CFSTR(kIODialinDeviceKey), path, sizeof(path));
-    if (path[0] == '\0')
-        return 0;
+    if (path[0] == '\0') copy_str_prop(service, CFSTR(kIODialinDeviceKey), path, sizeof(path));
+    if (path[0] == '\0') return 0;
     snprintf(port->path, sizeof(port->path), "%s", path);
 
     /* USB metadata is found by searching ancestors for USB device properties.
@@ -91,16 +81,12 @@ static int fill_port(io_object_t service, splist_port_t *port)
     if (has_vid) {
         port->transport = SPLIST_TRANSPORT_USB;
         port->vid = (uint16_t)vid;
-        if (has_pid)
-            port->pid = (uint16_t)pid;
+        if (has_pid) port->pid = (uint16_t)pid;
         port->has_usb_ids = 1;
 
-        copy_str_prop(service, CFSTR(kUSBSerialNumberString),
-                      port->serial_number, sizeof(port->serial_number));
-        copy_str_prop(service, CFSTR(kUSBVendorString),
-                      port->manufacturer, sizeof(port->manufacturer));
-        copy_str_prop(service, CFSTR(kUSBProductString),
-                      port->product, sizeof(port->product));
+        copy_str_prop(service, CFSTR(kUSBSerialNumberString), port->serial_number, sizeof(port->serial_number));
+        copy_str_prop(service, CFSTR(kUSBVendorString), port->manufacturer, sizeof(port->manufacturer));
+        copy_str_prop(service, CFSTR(kUSBProductString), port->product, sizeof(port->product));
     }
 
     return 1;
@@ -112,17 +98,13 @@ splist_status_t splist_backend_enumerate(splist_port_t **out_ports, size_t *out_
     *out_count = 0;
 
     CFMutableDictionaryRef match = IOServiceMatching(kIOSerialBSDServiceValue);
-    if (match == NULL)
-        return SPLIST_ERR_IO;
+    if (match == NULL) return SPLIST_ERR_IO;
 
     /* Restrict to true serial ports (rs-232 style), as the Rust tool does. */
-    CFDictionarySetValue(match, CFSTR(kIOSerialBSDTypeKey),
-                         CFSTR(kIOSerialBSDAllTypes));
+    CFDictionarySetValue(match, CFSTR(kIOSerialBSDTypeKey), CFSTR(kIOSerialBSDAllTypes));
 
     io_iterator_t iter = MACH_PORT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, match, &iter)
-            != KERN_SUCCESS)
-        return SPLIST_ERR_IO;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, match, &iter) != KERN_SUCCESS) return SPLIST_ERR_IO;
 
     splist_port_t *ports = NULL;
     size_t count = 0, cap = 0;
@@ -132,8 +114,7 @@ splist_status_t splist_backend_enumerate(splist_port_t **out_ports, size_t *out_
         splist_port_t port;
         int kept = fill_port(service, &port);
         IOObjectRelease(service);
-        if (!kept)
-            continue;
+        if (!kept) continue;
 
         if (count == cap) {
             size_t newcap = cap == 0 ? 8 : cap * 2;

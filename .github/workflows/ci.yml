@@ -1,0 +1,41 @@
+name: CI
+
+# Test builds for the develop branch (and PRs targeting develop/master).
+# No artifacts are retained — this just proves the tree compiles and runs
+# on every supported platform.
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, master]
+
+jobs:
+  build:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Smoke test (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ./build/splist --ver
+          ./build/splist --help
+          ./build/splist list
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\build\Release\splist.exe --ver
+          .\build\Release\splist.exe --help
+          .\build\Release\splist.exe list

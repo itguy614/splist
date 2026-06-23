@@ -24,7 +24,7 @@ typedef enum {
 #define SPLIST_PATH_MAX 4096
 
 typedef struct {
-    char path[SPLIST_STR_MAX];          /* e.g. "/dev/ttyUSB0" or "COM3" */
+    char path[SPLIST_STR_MAX]; /* e.g. "/dev/ttyUSB0" or "COM3" */
     splist_transport_t transport;
 
     /* Nonzero if real hardware is present that a program could actually open.
@@ -34,7 +34,7 @@ typedef struct {
     int connectable;
 
     /* The fields below are only meaningful when transport == USB. */
-    int has_usb_ids;                    /* nonzero if vid/pid are valid */
+    int has_usb_ids; /* nonzero if vid/pid are valid */
     uint16_t vid;
     uint16_t pid;
     char serial_number[SPLIST_STR_MAX]; /* empty if unavailable */
@@ -51,8 +51,8 @@ typedef struct {
 /* Result codes returned by the public API. */
 typedef enum {
     SPLIST_OK = 0,
-    SPLIST_ERR_UNSUPPORTED = -1,  /* platform backend not implemented */
-    SPLIST_ERR_IO = -2,           /* failed to read system port info */
+    SPLIST_ERR_UNSUPPORTED = -1, /* platform backend not implemented */
+    SPLIST_ERR_IO = -2,          /* failed to read system port info */
     SPLIST_ERR_NOMEM = -3,
 } splist_status_t;
 

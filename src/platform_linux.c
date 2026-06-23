@@ -4,16 +4,11 @@
 
 #include <ctype.h>
 #include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
-
-#include <linux/serial.h>
 
 /* Linux backend using sysfs only (no libudev dependency).
  *
@@ -31,14 +26,12 @@ static void read_attr(const char *dir, const char *attr, char *buf, size_t bufle
     char path[PATH_MAX + 64];
     FILE *f;
 
-    if (buflen == 0)
-        return;
+    if (buflen == 0) return;
     buf[0] = '\0';
 
     snprintf(path, sizeof(path), "%s/%s", dir, attr);
     f = fopen(path, "r");
-    if (f == NULL)
-        return;
+    if (f == NULL) return;
 
     if (fgets(buf, (int)buflen, f) != NULL) {
         size_t len = strlen(buf);
@@ -70,63 +63,55 @@ static int find_usb_parent(const char *device_dir, char *usb_dir, size_t len)
         }
         /* Strip the last path component to move one level up. */
         char *slash = strrchr(cur, '/');
-        if (slash == NULL || slash == cur)
-            return 0;
+        if (slash == NULL || slash == cur) return 0;
         *slash = '\0';
         /* Stop once we climb out of the /sys/devices tree. */
-        if (strstr(cur, "/devices") == NULL)
-            return 0;
+        if (strstr(cur, "/devices") == NULL) return 0;
     }
 }
 
-/* Decide whether a non-USB tty is backed by real, openable hardware. The 8250
- * driver pre-creates /dev/ttyS0..N regardless of what is populated; the kernel
- * only knows a true UART type once probed, so we ask via TIOCGSERIAL and treat
- * PORT_UNKNOWN as "nothing attached". A port that is open by something else
- * (EBUSY) or that we lack permission to probe (EACCES) is assumed real. */
-static int uart_is_present(const char *dev_path)
+/* Decide whether a non-USB tty is backed by real hardware. The 8250 driver
+ * pre-creates /dev/ttyS0..N regardless of what is populated; the kernel records
+ * the detected UART type in sysfs (/sys/class/tty/<name>/type), where 0
+ * (PORT_UNKNOWN) means no chip was found. We read that file rather than opening
+ * the device, because opening a tty asserts the modem control lines (DTR/RTS)
+ * and could disturb attached equipment. A missing attribute is treated as
+ * present so we never hide a port we cannot classify. */
+static int uart_is_present(const char *name)
 {
-    int fd = open(dev_path, O_RDWR | O_NONBLOCK | O_NOCTTY);
-    if (fd < 0)
-        return (errno == EBUSY || errno == EACCES) ? 1 : 0;
+    char dir[PATH_MAX];
+    char type[SPLIST_STR_MAX];
 
-    struct serial_struct ser;
-    int present = 1; /* if the ioctl is unsupported, don't hide the port */
-    if (ioctl(fd, TIOCGSERIAL, &ser) == 0)
-        present = (ser.type != PORT_UNKNOWN);
-    close(fd);
-    return present;
+    snprintf(dir, sizeof(dir), "%s/%s", SYS_TTY_DIR, name);
+    read_attr(dir, "type", type, sizeof(type));
+    if (type[0] == '\0') return 1; /* no type attribute: cannot classify, so keep it */
+    return strtol(type, NULL, 10) != 0;
 }
 
 /* Look in a /dev/serial/<kind> directory for the symlink that resolves to the
  * tty named `tty_name`, and write its full path into out. These aliases are
  * created by udev and are stable across replug/reboot. Empty out on miss. */
-static void find_dev_serial_link(const char *kind, const char *tty_name,
-                                 char *out, size_t outlen)
+static void find_dev_serial_link(const char *kind, const char *tty_name, char *out, size_t outlen)
 {
     char dir[128];
     DIR *d;
     struct dirent *ent;
 
-    if (outlen)
-        out[0] = '\0';
+    if (outlen) out[0] = '\0';
 
     snprintf(dir, sizeof(dir), "/dev/serial/%s", kind);
     d = opendir(dir);
-    if (d == NULL)
-        return; /* directory is absent when no by-id/by-path links exist */
+    if (d == NULL) return; /* directory is absent when no by-id/by-path links exist */
 
     while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.')
-            continue;
+        if (ent->d_name[0] == '.') continue;
 
         char link[PATH_MAX];
         char target[PATH_MAX];
         snprintf(link, sizeof(link), "%s/%s", dir, ent->d_name);
 
         ssize_t n = readlink(link, target, sizeof(target) - 1);
-        if (n < 0)
-            continue;
+        if (n < 0) continue;
         target[n] = '\0';
 
         /* Targets look like "../../ttyACM0"; compare the final component. */
@@ -150,15 +135,13 @@ static int fill_port(const char *name, splist_port_t *port)
     memset(port, 0, sizeof(*port));
     /* Bound the name with a precision specifier: tty names are always short,
      * but readdir entries can be up to NAME_MAX, which the compiler flags. */
-    snprintf(port->path, sizeof(port->path), "/dev/%.*s",
-             (int)(sizeof(port->path) - 6), name);
+    snprintf(port->path, sizeof(port->path), "/dev/%.*s", (int)(sizeof(port->path) - 6), name);
     port->transport = SPLIST_TRANSPORT_UNKNOWN;
 
     /* Resolve /sys/class/tty/<name>/device to the real device directory. */
     snprintf(link_path, sizeof(link_path), "%s/%s/device", SYS_TTY_DIR, name);
     char resolved[PATH_MAX];
-    if (realpath(link_path, resolved) == NULL)
-        return 0; /* no backing device; skip virtual/pseudo ttys */
+    if (realpath(link_path, resolved) == NULL) return 0; /* no backing device; skip virtual/pseudo ttys */
     snprintf(device_dir, sizeof(device_dir), "%s", resolved);
 
     char usb_dir[PATH_MAX];
@@ -177,16 +160,13 @@ static int fill_port(const char *name, splist_port_t *port)
         read_attr(usb_dir, "serial", port->serial_number, sizeof(port->serial_number));
         read_attr(usb_dir, "manufacturer", port->manufacturer, sizeof(port->manufacturer));
         read_attr(usb_dir, "product", port->product, sizeof(port->product));
-    } else if (strstr(device_dir, "/pci") != NULL ||
-               strstr(device_dir, ":") != NULL) {
+    } else if (strstr(device_dir, "/pci") != NULL || strstr(device_dir, ":") != NULL) {
         port->transport = SPLIST_TRANSPORT_PCI;
     }
 
     /* USB-attached ports are always connectable; for legacy UARTs we probe to
      * weed out the phantom 8250 placeholders. */
-    port->connectable = (port->transport == SPLIST_TRANSPORT_USB)
-                            ? 1
-                            : uart_is_present(port->path);
+    port->connectable = (port->transport == SPLIST_TRANSPORT_USB) ? 1 : uart_is_present(name);
 
     find_dev_serial_link("by-id", name, port->by_id, sizeof(port->by_id));
     find_dev_serial_link("by-path", name, port->by_path, sizeof(port->by_path));
@@ -205,16 +185,13 @@ splist_status_t splist_backend_enumerate(splist_port_t **out_ports, size_t *out_
     *out_count = 0;
 
     d = opendir(SYS_TTY_DIR);
-    if (d == NULL)
-        return SPLIST_ERR_IO;
+    if (d == NULL) return SPLIST_ERR_IO;
 
     while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.')
-            continue;
+        if (ent->d_name[0] == '.') continue;
 
         splist_port_t port;
-        if (!fill_port(ent->d_name, &port))
-            continue;
+        if (!fill_port(ent->d_name, &port)) continue;
 
         if (count == cap) {
             size_t newcap = cap == 0 ? 8 : cap * 2;

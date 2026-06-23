@@ -15,37 +15,65 @@
 
 static const char *PROG = "splist";
 
+/* Injected by the build from the VERSION file; fall back if built ad hoc. */
+#ifndef SPLIST_VERSION
+#define SPLIST_VERSION "unknown"
+#endif
+
+#define SPLIST_COPYRIGHT "Copyright (c) 2026 Kurt Wolf. Released under the MIT License."
+
+static void print_version(void)
+{
+    printf("%s %s\n", PROG, SPLIST_VERSION);
+    printf("%s\n", SPLIST_COPYRIGHT);
+}
+
 static void print_usage(FILE *out)
 {
     fprintf(out,
-        "Usage:\n"
-        "  %s [list] [--all] [--json] [--vid <hex>] [--pid <hex>] [--manufacturer <str>]\n"
-        "        List connectable serial ports (the default when no command is given).\n"
-        "  %s get-path --sn <SN> [--json]\n"
-        "        Print the path of the USB port with serial <SN>.\n"
-        "  %s wait --sn <SN> [--timeout <sec>] [--json]\n"
-        "        Block until a USB port with serial <SN> appears, then print it.\n"
-        "  %s --help\n"
-        "        Show this help.\n"
-        "\n"
-        "Shortcuts: with no arguments, lists ports; passing --sn without a command\n"
-        "runs get-path.\n",
-        PROG, PROG, PROG, PROG);
+            "splist %s - list serial ports and find a port by USB serial number\n"
+            "\n"
+            "Usage:\n"
+            "  %s [list] [--all] [--json] [--vid <hex>] [--pid <hex>] [--manufacturer <str>]\n"
+            "        List connectable serial ports (the default when no serial is given).\n"
+            "  %s <serial> [--wait [--timeout <sec>]] [--json]\n"
+            "        Print the path of the USB port with the given serial number.\n"
+            "        With --wait, block until that port appears.\n"
+            "  %s --ver | --help\n"
+            "        Print the version, or show this help.\n"
+            "\n"
+            "Options:\n"
+            "  --all                List every port, including non-connectable ones.\n"
+            "  --json               Emit machine-readable JSON.\n"
+            "  --vid <hex>          Filter list by USB vendor id, e.g. 303a.\n"
+            "  --pid <hex>          Filter list by USB product id, e.g. 1001.\n"
+            "  --manufacturer <s>   Filter list by manufacturer substring (case-insensitive).\n"
+            "  --wait               Wait for the serial port to appear before printing.\n"
+            "  --timeout <sec>      With --wait, give up after <sec> seconds (default: forever).\n"
+            "\n"
+            "Examples:\n"
+            "  %s                                 # list connectable ports\n"
+            "  %s --all --json                    # every port, as JSON\n"
+            "  %s --vid 303a --manufacturer esp   # filter to Espressif devices\n"
+            "  %s 3C:DC:75:65:AF:A4               # print that board's /dev path\n"
+            "  %s 3C:DC:75:65:AF:A4 --wait --timeout 30\n"
+            "                                     # wait up to 30s for the board\n"
+            "  PORT=$(%s 3C:DC:75:65:AF:A4) && echo \"flashing $PORT\"\n"
+            "\n"
+            "%s\n",
+            SPLIST_VERSION, PROG, PROG, PROG, PROG, PROG, PROG, PROG, PROG, PROG, SPLIST_COPYRIGHT);
 }
 
 /* Case-insensitive substring test; an empty/NULL needle always matches. */
 static int ci_contains(const char *hay, const char *needle)
 {
-    if (needle == NULL || needle[0] == '\0')
-        return 1;
+    if (needle == NULL || needle[0] == '\0') return 1;
     size_t nl = strlen(needle);
     for (; *hay; ++hay) {
         size_t k = 0;
-        while (k < nl && hay[k] &&
-               tolower((unsigned char)hay[k]) == tolower((unsigned char)needle[k]))
+        while (k < nl && hay[k] && tolower((unsigned char)hay[k]) == tolower((unsigned char)needle[k]))
             ++k;
-        if (k == nl)
-            return 1;
+        if (k == nl) return 1;
     }
     return 0;
 }
@@ -68,19 +96,13 @@ static void print_port(const splist_port_t *p)
 {
     printf("%s [%s]\n", p->path, splist_transport_name(p->transport));
     if (p->transport == SPLIST_TRANSPORT_USB) {
-        if (p->has_usb_ids)
-            printf("    VID:PID        %04x:%04x\n", p->vid, p->pid);
-        if (p->serial_number[0])
-            printf("    Serial Number  %s\n", p->serial_number);
-        if (p->manufacturer[0])
-            printf("    Manufacturer   %s\n", p->manufacturer);
-        if (p->product[0])
-            printf("    Product        %s\n", p->product);
+        if (p->has_usb_ids) printf("    VID:PID        %04x:%04x\n", p->vid, p->pid);
+        if (p->serial_number[0]) printf("    Serial Number  %s\n", p->serial_number);
+        if (p->manufacturer[0]) printf("    Manufacturer   %s\n", p->manufacturer);
+        if (p->product[0]) printf("    Product        %s\n", p->product);
     }
-    if (p->by_id[0])
-        printf("    By-Id          %s\n", p->by_id);
-    if (p->by_path[0])
-        printf("    By-Path        %s\n", p->by_path);
+    if (p->by_id[0]) printf("    By-Id          %s\n", p->by_id);
+    if (p->by_path[0]) printf("    By-Path        %s\n", p->by_path);
 }
 
 /* ---- JSON output ---- */
@@ -91,13 +113,27 @@ static void json_string(const char *s)
     putchar('"');
     for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
         switch (*p) {
-        case '"':  fputs("\\\"", stdout); break;
-        case '\\': fputs("\\\\", stdout); break;
-        case '\b': fputs("\\b", stdout);  break;
-        case '\f': fputs("\\f", stdout);  break;
-        case '\n': fputs("\\n", stdout);  break;
-        case '\r': fputs("\\r", stdout);  break;
-        case '\t': fputs("\\t", stdout);  break;
+        case '"':
+            fputs("\\\"", stdout);
+            break;
+        case '\\':
+            fputs("\\\\", stdout);
+            break;
+        case '\b':
+            fputs("\\b", stdout);
+            break;
+        case '\f':
+            fputs("\\f", stdout);
+            break;
+        case '\n':
+            fputs("\\n", stdout);
+            break;
+        case '\r':
+            fputs("\\r", stdout);
+            break;
+        case '\t':
+            fputs("\\t", stdout);
+            break;
         default:
             if (*p < 0x20)
                 printf("\\u%04x", *p);
@@ -110,7 +146,9 @@ static void json_string(const char *s)
 
 static void json_field_str(const char *key, const char *val, int trailing_comma)
 {
-    printf("    "); json_string(key); printf(": ");
+    printf("    ");
+    json_string(key);
+    printf(": ");
     json_string(val);
     printf(trailing_comma ? ",\n" : "\n");
 }
@@ -146,8 +184,7 @@ static void print_ports_json(const splist_port_t *ports, size_t count)
 
 /* ---- commands ---- */
 
-static int cmd_list(int as_json, int show_all,
-                    long want_vid, long want_pid, const char *want_mfg)
+static int cmd_list(int as_json, int show_all, long want_vid, long want_pid, const char *want_mfg)
 {
     splist_port_t *ports = NULL;
     size_t count = 0;
@@ -167,14 +204,10 @@ static int cmd_list(int as_json, int show_all,
     size_t shown = 0;
     for (size_t i = 0; i < count; ++i) {
         const splist_port_t *p = &ports[i];
-        if (!show_all && !p->connectable)
-            continue;
-        if (want_vid >= 0 && !(p->has_usb_ids && p->vid == (uint16_t)want_vid))
-            continue;
-        if (want_pid >= 0 && !(p->has_usb_ids && p->pid == (uint16_t)want_pid))
-            continue;
-        if (want_mfg && !ci_contains(p->manufacturer, want_mfg))
-            continue;
+        if (!show_all && !p->connectable) continue;
+        if (want_vid >= 0 && !(p->has_usb_ids && p->vid == (uint16_t)want_vid)) continue;
+        if (want_pid >= 0 && !(p->has_usb_ids && p->pid == (uint16_t)want_pid)) continue;
+        if (want_mfg && !ci_contains(p->manufacturer, want_mfg)) continue;
         ports[shown++] = *p;
     }
 
@@ -231,8 +264,7 @@ static int cmd_wait(const char *serial, int as_json, long timeout_sec)
         }
 
         if (timeout_sec > 0 && (time(NULL) - start) >= timeout_sec) {
-            fprintf(stderr, "%s: timed out after %lds waiting for serial '%s'\n",
-                    PROG, timeout_sec, serial);
+            fprintf(stderr, "%s: timed out after %lds waiting for serial '%s'\n", PROG, timeout_sec, serial);
             return 1;
         }
         sleep_ms(250);
@@ -254,10 +286,11 @@ static const char *flag_value(int argc, char **argv, int *i, int *err)
 
 int main(int argc, char **argv)
 {
-    const char *cmd = NULL;
-    const char *serial = NULL;
+    /* The single positional argument is either the literal "list" or a serial
+     * number to look up. No positional means list. */
+    const char *positional = NULL;
     const char *want_mfg = NULL;
-    int as_json = 0, show_all = 0;
+    int as_json = 0, show_all = 0, do_wait = 0;
     long want_vid = -1, want_pid = -1, timeout_sec = 0;
     int err = 0;
 
@@ -267,12 +300,15 @@ int main(int argc, char **argv)
         if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
             print_usage(stdout);
             return 0;
+        } else if (strcmp(a, "--ver") == 0 || strcmp(a, "--version") == 0) {
+            print_version();
+            return 0;
         } else if (strcmp(a, "--json") == 0) {
             as_json = 1;
         } else if (strcmp(a, "--all") == 0) {
             show_all = 1;
-        } else if (strcmp(a, "--sn") == 0) {
-            serial = flag_value(argc, argv, &i, &err);
+        } else if (strcmp(a, "--wait") == 0) {
+            do_wait = 1;
         } else if (strcmp(a, "--vid") == 0) {
             const char *v = flag_value(argc, argv, &i, &err);
             if (v) want_vid = strtol(v, NULL, 16);
@@ -284,8 +320,8 @@ int main(int argc, char **argv)
         } else if (strcmp(a, "--timeout") == 0) {
             const char *v = flag_value(argc, argv, &i, &err);
             if (v) timeout_sec = strtol(v, NULL, 10);
-        } else if (a[0] != '-' && cmd == NULL) {
-            cmd = a; /* first bare word is the subcommand */
+        } else if (a[0] != '-' && positional == NULL) {
+            positional = a; /* "list" or a serial number */
         } else {
             fprintf(stderr, "%s: unknown argument '%s'\n\n", PROG, a);
             print_usage(stderr);
@@ -297,30 +333,16 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    /* Friendly defaults: no command lists; a lone --sn means get-path. */
-    if (cmd == NULL)
-        cmd = (serial != NULL) ? "get-path" : "list";
-
-    if (strcmp(cmd, "list") == 0)
+    /* No positional, or the literal "list", means list mode. */
+    if (positional == NULL || strcmp(positional, "list") == 0) {
+        if (do_wait) {
+            fprintf(stderr, "%s: --wait needs a serial number to wait for\n", PROG);
+            return 2;
+        }
         return cmd_list(as_json, show_all, want_vid, want_pid, want_mfg);
-
-    if (strcmp(cmd, "get-path") == 0) {
-        if (serial == NULL) {
-            fprintf(stderr, "%s: get-path requires --sn <SERIAL>\n", PROG);
-            return 2;
-        }
-        return cmd_get_path(serial, as_json);
     }
 
-    if (strcmp(cmd, "wait") == 0) {
-        if (serial == NULL) {
-            fprintf(stderr, "%s: wait requires --sn <SERIAL>\n", PROG);
-            return 2;
-        }
-        return cmd_wait(serial, as_json, timeout_sec);
-    }
-
-    fprintf(stderr, "%s: unknown command '%s'\n\n", PROG, cmd);
-    print_usage(stderr);
-    return 2;
+    /* Otherwise the positional is a serial number to look up. */
+    if (do_wait) return cmd_wait(positional, as_json, timeout_sec);
+    return cmd_get_path(positional, as_json);
 }
