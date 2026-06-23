@@ -6,10 +6,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <cfgmgr32.h>
-#include <devguid.h>
-#include <setupapi.h>
+/* clang-format off */
+/* Include order is significant and must NOT be alphabetized:
+ *   - windows.h defines the base types the SetupAPI headers depend on, so it
+ *     must come first;
+ *   - initguid.h must precede devguid.h so that GUID_DEVCLASS_PORTS is defined
+ *     (allocated) in this translation unit rather than left as an extern. */
 #include <windows.h>
+#include <initguid.h>
+#include <setupapi.h>
+#include <devguid.h>
+/* clang-format on */
 
 /* Windows backend using SetupAPI.
  *

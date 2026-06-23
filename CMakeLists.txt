@@ -44,9 +44,9 @@ if(APPLE)
     )
 endif()
 
-# Windows enumeration uses SetupAPI.
+# Windows enumeration uses SetupAPI; registry reads pull in advapi32.
 if(WIN32)
-    target_link_libraries(splist PRIVATE setupapi)
+    target_link_libraries(splist PRIVATE setupapi advapi32)
 endif()
 
 install(TARGETS splist RUNTIME DESTINATION bin)
